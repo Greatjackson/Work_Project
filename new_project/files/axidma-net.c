@@ -212,7 +212,6 @@ ret_axidma:
         axidma_free(axidma_dev, rx_buf, DEFAULT_TRANSFER_SIZE);
         rx_buf = NULL;
     }
-
     if (tx_buf != NULL)
     {
         axidma_free(axidma_dev, tx_buf, DEFAULT_TRANSFER_SIZE);
@@ -224,6 +223,69 @@ ret_axidma:
         axidma_dev = NULL;
     }
     return -1;
+}
+
+static int cmd_analysis(char *buf)
+{
+    unsigned int code_value, flag;
+    char code_value_buf[16] = {0};
+    char flag_buf[4] = {0};
+
+    if(strncmp(buf, "cmd_start", 9) == 0)
+    {
+        sync_data_send(0, 0x0, 0x1);
+    }
+    else if(strncmp(buf, "cmd_end", 7) == 0)
+    {
+        sync_data_send(0, 0x0, 0x0);
+    }
+
+    else if(strncmp(buf, "send_big", 8) == 0)
+    {
+        sync_data_send(0, 0x4, 0x1);
+    }
+    else if(strncmp(buf, "send_little", 11) == 0)
+    {
+        sync_data_send(0, 0x4, 0x0);
+    }
+
+    else if(strncmp(buf, "receive_big", 11) == 0)
+    {
+        sync_data_send(0, 0x8, 0x1);
+    }
+    else if(strncmp(buf, "receive_little", 14) == 0)
+    {
+        sync_data_send(0, 0x8, 0x0);
+    }
+
+    else if(strncmp(buf, "space_code", 10) == 0)
+    {
+        memcpy(code_value_buf, buf+11, 8); 
+        printf("str: %s\n", code_value_buf);
+        sscanf(code_value_buf, "%x", &code_value);
+        sync_data_send(0, 0xC, code_value);
+        memcpy(flag_buf, buf+20, 1);
+        flag = atoi(flag_buf);        
+        sync_data_send(0, 0x10, flag);
+    }
+    else if(strncmp(buf, "begin_code", 10) == 0)
+    {
+        memcpy(code_value_buf, buf+11, 8); 
+        printf("str: %s\n", code_value_buf);
+        sscanf(code_value_buf, "%x", &code_value);
+        sync_data_send(0, 0x14, code_value);
+        memcpy(flag_buf, buf+20, 1);
+        flag = atoi(flag_buf);                 
+        sync_data_send(0, 0x18, flag);
+    }
+
+    else
+    {
+        LOGE("invalid command, please check again!\r\n", errno);
+        return -1;
+    }
+    
+    return 0;
 }
 
 /*
@@ -238,6 +300,9 @@ static void *rcv_file_func(void *arg)
     int rc, i;
     struct sockaddr_in recv_addr;
     socklen_t addrlen = sizeof(recv_addr);
+    char code_value_buf = {0};
+    char flag_buf = {0};
+    unsigned int code_value, flag;
 
 
     // *(tx_buf + 0) = 0x1c;
@@ -270,17 +335,11 @@ static void *rcv_file_func(void *arg)
         printf("\n");
         if(ntohs(recv_addr.sin_port) == 9527)
         {
-            if(strncmp(tx_buf, "cmd_start", 9) == 0)
+            ret_val = cmd_analysis(tx_buf);
+            if (ret_val < 0)
             {
-                sync_data_send(0, 0x0, 0x1);
-            }
-            if(strncmp(tx_buf, "send_big", 8) == 0)
-            {
-                sync_data_send(0, 0x4, 0x1);
-            }
-            if(strncmp(tx_buf, "receive_big", 11) == 0)
-            {
-                sync_data_send(0, 0x8, 0x1);
+                LOGE("get net_data faild,errno = %d\r\n", errno);
+                return -errno;
             }
         }
         else
@@ -361,7 +420,7 @@ static void *snd_file_func(void *arg)
             break;
         }
 
-        printf("axidma received %d bytes data:\n");
+        printf("axidma received data:\n");
         for(i = 0; i < 30; i++)
         {
             printf("0x%02x ", rx_buf[i]);
@@ -464,12 +523,14 @@ int main(int argc, char **argv)
 
     LOGD(LOG_TAG"lg tp 1...\r\n");
 
-    // if (axidma_prep() < 0)
-    // {
-    //     LOGE(LOG_TAG"axidma_prep failed,errno = %d\r\n", errno);
-    //     return -errno;
-    // }
+    if (axidma_prep() < 0)
+    {
+        LOGE(LOG_TAG"axidma_prep failed,errno = %d\r\n", errno);
+        return -errno;
+    }
    
+    mmap_init();
+
     server_fd = tcp_udp_server_init(1, portnum, MAX_LINK_NUM);
     if (server_fd < 0)
     {

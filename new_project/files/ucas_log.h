@@ -5,7 +5,7 @@
 #include <stdio.h>
 
 #define DEBUG
-//#define TO_TERMINAL
+#define TO_TERMINAL
 
 #ifdef DEBUG
 #define LOG_LEVEL_CLSUN   4
