@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "version.h": "c"
+        "version.h": "c",
+        "compare": "c",
+        "type_traits": "c"
     }
 }

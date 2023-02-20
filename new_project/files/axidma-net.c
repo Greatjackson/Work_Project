@@ -46,9 +46,10 @@
 #define MAX_LINK_NUM 1
 #define LOG_TAG "axidma-net.c: "
 
-static int server_fd = -1, client_nfp = -1;
+static int server_fd = -1, client_nfp = -1, cmd_fd = -1;
 static file_size_type rcv_len = 0;
 
+static pthread_t rcv_cmd_thread = -1;
 static pthread_t rcv_file_thread = -1;
 static pthread_t snd_file_thread = -1;
 static pthread_t monitor_thread = -1;
@@ -59,10 +60,6 @@ const array_t *tx_chans, *rx_chans;
 char *tx_buf, *rx_buf;
 int phy_addr = 0x43c00000;
 volatile unsigned int *vir_addr = NULL;
-int dst_port_num1 = 8000;
-int dst_port_num2 = 8001;
-char *dst_ipaddr1 = "192.168.1.123";
-char *dst_ipaddr2 = "192.168.1.124";
 
 unsigned int sync_data_send(int sync_port_num, int reg_offset, unsigned int value);
 int mmap_init(void);
@@ -147,9 +144,6 @@ int axidma_prep(void)
 {
     int rc, len, data;
 
-    // mmap_init();
-    // sync_data_send(0, 0, 0x0);
-    // Initialize the AXI DMA device
     axidma_dev = axidma_init();
     if (axidma_dev == NULL)
     {
@@ -289,6 +283,44 @@ static int cmd_analysis(char *buf)
 }
 
 /*
+* get command data from ethernet interface .
+*/
+static void *rcv_cmd_func(void *arg)
+{
+    int ret_val = -1;
+    int *tmp_fd = (int *)arg;   
+    int i;
+    char cmd_buf[64] = {0};
+
+    printf("cmd fd = %d\r\n", *tmp_fd);
+
+    while(1)
+    {
+        ret_val = read(*tmp_fd, cmd_buf, 64);
+        if (ret_val < 0)
+        {
+            LOGE(LOG_TAG"get net_data faild,errno = %d\r\n", errno);
+            return -errno;
+        }
+
+        printf("get cmd data form eth:\n");
+        for(i = 0; i < 30; i++)
+        {
+            printf("0x%02x ", cmd_buf[i]);
+        }
+        printf("\n");
+
+        ret_val = cmd_analysis(cmd_buf);
+        if (ret_val < 0)
+        {
+            LOGE("get net_data faild,errno = %d\r\n", errno);
+            return -errno;
+        }
+
+    }
+}
+
+/*
 * get data from ethernet interface and send them to FPGA by axidma.
 */
 static void *rcv_file_func(void *arg)
@@ -304,26 +336,14 @@ static void *rcv_file_func(void *arg)
     char flag_buf = {0};
     unsigned int code_value, flag;
 
-
-    // *(tx_buf + 0) = 0x1c;
-    // *(tx_buf + 1) = 0x15;
-    // *(tx_buf + 2) = 0xb5;
-    // *(tx_buf + 3) = 0xb5;
-
-    // for(i = 4; i < 128; i++)
-    // {
-    //     *(tx_buf + i) = i;
-    // }
-
     printf("file fd = %d\r\n", *tmp_fd);
 
     while(1)
     {
-        ret_val = recvfrom(*tmp_fd, tx_buf, DEFAULT_TRANSFER_SIZE, 0,(struct sockaddr*)&recv_addr,&addrlen);
-        printf("[recv from %s:%d]%s \n",inet_ntoa(*(struct in_addr*)&recv_addr.sin_addr.s_addr),ntohs(recv_addr.sin_port),tx_buf);
+        ret_val = read(*tmp_fd, tx_buf, DEFAULT_TRANSFER_SIZE);
         if (ret_val < 0)
         {
-            LOGE("get net_data faild,errno = %d\r\n", errno);
+            LOGE(LOG_TAG"get net_data faild,errno = %d\r\n", errno);
             return -errno;
         }
 
@@ -333,71 +353,14 @@ static void *rcv_file_func(void *arg)
             printf("0x%02x ", tx_buf[i]);
         }
         printf("\n");
-        if(ntohs(recv_addr.sin_port) == 9527)
+
+        rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
+        if (rc < 0)
         {
-            ret_val = cmd_analysis(tx_buf);
-            if (ret_val < 0)
-            {
-                LOGE("get net_data faild,errno = %d\r\n", errno);
-                return -errno;
-            }
-        }
-        else
-        {
-            rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
-            if (rc < 0)
-            {
-                LOGD("axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
-                break;
-            } 
-        }
+            LOGD("axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
+            break;
+        } 
     }
-
-
-    // ret_val = file_rcv(&rcv_file_info, &rcv_len, STROE_AFTER_RCV_DONE, *tmp_fd);
-    // if (ret_val < 0)
-    // {
-    //     LOGE("file_rcv gose wrong,ret_val = %d\r\n", ret_val);
-    // }
-    // else
-    // {
-    //     sync_data_send(0, 0, 0x1);
-    //     usleep(100000);
-    //     sync_data_send(0, 0, 0x3);
-    //     usleep(100000);
-    //     LOGD("rcv file done\r\n");
-    //     axidma_fd = open_or_create_file(rcv_file_info.file_name, 0);
-    //     if (axidma_fd < 0)
-    //     {
-    //         LOGE(LOG_TAG"axidma_fd open failed for file:%s,errno = %d\r\n", rcv_file_info.file_name, errno);
-    //     }
-    //     do
-    //     {
-    //         memset(tx_buf, 0x0, DEFAULT_TRANSFER_SIZE);
-    //         ret_val = read(axidma_fd, tx_buf, DEFAULT_TRANSFER_SIZE);
-    //         // printf("Snd axi data to fpga:\n");
-    //         // for(ii = 0; ii < DEFAULT_TRANSFER_SIZE; ii++)
-    //         // {
-    //         //     printf("0x%02X ", *(tx_buf + ii));
-    //         // }
-    //         // printf("\n");
-
-    //         if (ret_val <= 0)
-    //         {
-    //             LOGE(LOG_TAG"read file finished!\r\n");
-    //             break;
-    //         }
-    //         rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
-    //         if (rc < 0)
-    //         {
-    //             LOGD("axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
-    //             break;
-    //         }
-    //     }
-    //     while (ret_val > 0);
-	// usleep(100000);
-	// sync_data_send(0, 0, 0x0);
-    // }
 }
 
 /*
@@ -416,7 +379,7 @@ static void *snd_file_func(void *arg)
         rc = axidma_oneway_transfer(axidma_dev, rx_channel, rx_buf, DEFAULT_TRANSFER_SIZE, true);
         if (rc < 0)
         {
-            LOGD("axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
+            LOGE(LOG_TAG"axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
             break;
         }
 
@@ -427,20 +390,12 @@ static void *snd_file_func(void *arg)
         }
         printf("\n");
 
-
-        struct sockaddr_in sock_addr = {0};	
-        sock_addr.sin_family = AF_INET;
-        sock_addr.sin_port = htons(dst_port_num1);
-        sock_addr.sin_addr.s_addr = inet_addr(dst_ipaddr1);
-
-
-        ret_val = sendto(*tmp_fd, rx_buf, DEFAULT_TRANSFER_SIZE, 0, (struct sockaddr*)&sock_addr, sizeof(sock_addr));
+        ret_val = write(*tmp_fd, rx_buf, DEFAULT_TRANSFER_SIZE);
         if (rc < 0)
         {
-            LOGD("client_nfp:%d,errno = %d\r\n", ret_val, errno);
+            LOGD("write data:%d,errno = %d\r\n", ret_val, errno);
             break;
         }
-
     }
 }
 
@@ -469,6 +424,12 @@ static void sigfunc(int sig)
         pthread_cancel(rcv_file_thread);
         rcv_file_thread = -1;
     }
+    if (rcv_cmd_thread > 0)
+    {
+        //pthread_join(rcv_cmd_thread);
+        pthread_cancel(rcv_cmd_thread);
+        rcv_cmd_thread = -1;
+    }
 
     if (monitor_thread > 0)
     {
@@ -490,6 +451,12 @@ static void sigfunc(int sig)
         server_fd = -1;
     }
 
+    if (cmd_fd > 0)
+    {
+        close(cmd_fd);
+        cmd_fd = -1;
+    }
+
     exit(1);
 }
 
@@ -508,17 +475,6 @@ int main(int argc, char **argv)
     // sighandler = signal(SIGTERM, sigfunc);
     // RETURN_ERR(LOG_TAG, "signal  SIGTERM", sighandler == SIG_ERR);
 
-    // if (argc < 2)
-    // {
-    //     LOG("usage: %s file_name port_number\r\n", argv[0]);
-    //     LOG("default port number is %d\r\n", portnum);
-    //     LOG("print \'c\' continue...\r\n");
-    //     if (getchar() == 'c')
-    //         LOG("continue...\r\n");
-    //     else
-    //         return 0;
-    // }
-
     show_version();
 
     LOGD(LOG_TAG"lg tp 1...\r\n");
@@ -531,10 +487,24 @@ int main(int argc, char **argv)
    
     mmap_init();
 
-    server_fd = tcp_udp_server_init(1, portnum, MAX_LINK_NUM);
+    cmd_fd = tcp_udp_client_init(0, 9009, 9527, "192.168.1.105", 10);
+    if (cmd_fd < 0)
+    {
+        LOGE(LOG_TAG"tcp socket failed,errno = %d\r\n", errno);
+        return -errno;
+    }
+    LOGD(LOG_TAG"cmd_fd = %d\r\n", cmd_fd);
+
+    ret_val = pthread_create_and_setaffinity(&rcv_cmd_thread, NULL, rcv_cmd_func, (void *)(&cmd_fd), -1);
+    if (ret_val != 0)
+    {
+        LOGE(LOG_TAG"pthread_create_and_setaffinity faild for rcv_cmd_func!\r\n");
+    }
+
+    server_fd = tcp_udp_client_init(0, 9009, 1234, "192.168.1.105", 10);
     if (server_fd < 0)
     {
-        LOGE(LOG_TAG"udp socket failed,errno = %d\r\n", errno);
+        LOGE(LOG_TAG"tcp socket failed,errno = %d\r\n", errno);
         return -errno;
     }
     LOGD(LOG_TAG"server_fd = %d\r\n", server_fd);
@@ -587,6 +557,12 @@ int main(int argc, char **argv)
         pthread_cancel(rcv_file_thread);
         rcv_file_thread = -1;
     }
+    if (rcv_cmd_thread > 0)
+    {
+        //pthread_join(rcv_cmd_thread, NULL);
+        pthread_cancel(rcv_cmd_thread);
+        rcv_cmd_thread = -1;
+    }
 
     if (monitor_thread > 0)
     {
@@ -605,6 +581,11 @@ int main(int argc, char **argv)
     {
         close(server_fd);
         server_fd = -1;
+    }
+    if (cmd_fd > 0)
+    {
+        close(cmd_fd);
+        cmd_fd = -1;
     }
 
     return 0;
