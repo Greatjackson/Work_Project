@@ -30,6 +30,9 @@
 #include <sys/mman.h>           // Mmap system call
 #include <sys/ioctl.h>          // IOCTL system call
 #include <getopt.h>             // Option parsing
+#include <linux/route.h>
+#include <linux/if_arp.h>
+#include <netinet/in.h>
 
 #include "ucas_log.h"
 #include "version.h"
@@ -60,6 +63,7 @@ const array_t *tx_chans, *rx_chans;
 char *tx_buf, *rx_buf;
 int phy_addr = 0x43c00000;
 volatile unsigned int *vir_addr = NULL;
+unsigned int print_data_flag = 0;
 
 unsigned int sync_data_send(int sync_port_num, int reg_offset, unsigned int value);
 int mmap_init(void);
@@ -302,13 +306,15 @@ static void *rcv_cmd_func(void *arg)
             LOGE(LOG_TAG"get net_data faild,errno = %d\r\n", errno);
             return -errno;
         }
-
-        printf("get cmd data form eth:\n");
-        for(i = 0; i < 30; i++)
+        if(print_data_flag == 1)
         {
-            printf("0x%02x ", cmd_buf[i]);
+            printf("get cmd data form eth:\n");
+            for(i = 0; i < 30; i++)
+            {
+                printf("0x%02x ", cmd_buf[i]);
+            }
+            printf("\n");
         }
-        printf("\n");
 
         ret_val = cmd_analysis(cmd_buf);
         if (ret_val < 0)
@@ -347,12 +353,15 @@ static void *rcv_file_func(void *arg)
             return -errno;
         }
 
-        printf("get data form eth:\n");
-        for(i = 0; i < 30; i++)
+        if(print_data_flag == 1)
         {
-            printf("0x%02x ", tx_buf[i]);
+            printf("get data form eth:\n");
+            for(i = 0; i < 30; i++)
+            {
+                printf("0x%02x ", tx_buf[i]);
+            }
+            printf("\n");
         }
-        printf("\n");
 
         rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
         if (rc < 0)
@@ -460,12 +469,191 @@ static void sigfunc(int sig)
     exit(1);
 }
 
+unsigned char server_ip[32];
+unsigned char client_ip[32];
+unsigned char client_mask[32];
+unsigned char client_mac[6];
+unsigned int server_port_num;
+unsigned int client_port_num;
+unsigned int cmd_port_num;
+
+int net_eth_set_mac(char *eth_name, unsigned char *mac)
+{
+	int ret;
+	int fd;
+	short flag;
+	struct ifreq ifreq;
+ 
+	fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+ 
+	memset(&ifreq, 0x00, sizeof(struct ifreq));
+	strcpy(ifreq.ifr_name, eth_name);
+ 
+	ret = ioctl(fd, SIOCGIFFLAGS, &ifreq);
+	if (ret < 0) 
+    {
+        LOGE(LOG_TAG"ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+	}
+ 
+	flag = ifreq.ifr_flags;
+	if (flag & IFF_UP) 
+    {
+		ifreq.ifr_flags &= ~IFF_UP;
+		ioctl(fd, SIOCSIFFLAGS, &ifreq);
+	}
+ 
+	ifreq.ifr_hwaddr.sa_family = ARPHRD_ETHER;
+	memcpy(ifreq.ifr_hwaddr.sa_data, mac, 6);
+	ret = ioctl(fd, SIOCSIFHWADDR, &ifreq);
+ 
+	if (ret < 0) 
+    {
+        LOGE(LOG_TAG"ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+	}
+ 
+	if (flag & IFF_UP) 
+    {
+		ioctl(fd, SIOCGIFFLAGS, &ifreq);
+		ifreq.ifr_flags |= IFF_UP;
+		ioctl(fd, SIOCSIFFLAGS, &ifreq);
+	}
+
+    return ret;
+}
+
+int net_eth_set_ipv4(char *eth_name, unsigned char *ip_addr)
+{
+    int sock;
+    struct ifreq ifr;
+    in_addr_t in_addr;
+    struct sockaddr_in sin;
+    int ret;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1) 
+    {
+        LOGE(LOG_TAG"socket failed,errno = %d\r\n", errno);
+        return -errno; 
+    }
+
+    memset(&ifr, 0, sizeof(struct ifreq));
+    memset(&sin, 0, sizeof(struct sockaddr_in));
+    sprintf(ifr.ifr_name, "%s", eth_name);
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = 0;
+    sin.sin_addr.s_addr = inet_addr(ip_addr);
+    memcpy(&(ifr.ifr_addr), &sin, sizeof(struct sockaddr));
+    ret = ioctl(sock, SIOCSIFADDR, (caddr_t)&ifr, sizeof(struct ifreq));
+    if (ret != 0) 
+    {
+        LOGE(LOG_TAG"ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+    }
+}
+
+int set_ip_netmask(const char *name, const char *ip_netmask)
+{
+    int sock;
+    struct ifreq ifr;
+    in_addr_t in_addr;
+    struct sockaddr_in sin;
+    char ip[32] = {0};
+    int ret;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1) 
+    {
+        LOGE(LOG_TAG"ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+    }
+
+    memset(&ifr, 0, sizeof(struct ifreq));
+    memset(&sin, 0, sizeof(struct sockaddr_in));
+
+    sprintf(ifr.ifr_name, "%s", name);
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = 0;
+    sin.sin_addr.s_addr = inet_addr(ip_netmask);
+    memcpy(&(ifr.ifr_addr), &sin, sizeof(struct sockaddr));
+    ret = ioctl(sock, SIOCSIFNETMASK, (caddr_t)&ifr, sizeof(struct ifreq));
+    if (ret != 0) 
+    {
+        LOGE(LOG_TAG"ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+    }
+
+    return 0;
+}
+
+int get_net_info(void)
+{
+    int ret;
+    FILE *fp = NULL;
+    char ip_buff[64];
+
+    char *filename = "./IP_PORT_INFO.txt";
+    fp = fopen(filename , "r");
+    if(fp == NULL)
+    {
+        LOGE(LOG_TAG"file open failed,errno = %d\r\n", errno);
+        return -errno;        
+    }
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "server_ip:%s", &server_ip);
+    printf("server_ip is: %s \n", server_ip);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_ip:%s", &client_ip);
+    printf("client_ip is: %s \n", client_ip);    
+	ret = net_eth_set_ipv4("eth0", client_ip);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_mask:%s", &client_mask);
+    printf("client_mask is: %s \n", client_mask);
+	ret = set_ip_netmask("eth0", client_mask);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_mac:%02x:%02x:%02x:%02x:%02x:%02x", &client_mac[0], &client_mac[1], &client_mac[2], &client_mac[3], &client_mac[4], &client_mac[5]);
+    printf("client_mac is: %02x:%02x:%02x:%02x:%02x:%02x \n", client_mac[0], client_mac[1], client_mac[2], client_mac[3], client_mac[4], client_mac[5]);
+	ret = net_eth_set_mac("eth0", client_mac);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "server_port_num:%d", &server_port_num);
+    printf("server_port_num is: %d\n", server_port_num);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_port_num:%d", &client_port_num);
+    printf("client_port_num is: %d\n", client_port_num);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "cmd_port_num:%d", &cmd_port_num);
+    printf("cmd_port_num is: %d\n", cmd_port_num);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "print_data_flag:%d", &print_data_flag);
+    printf("print_data_flag is: %d\n", print_data_flag);
+
+    fclose(fp);
+}
+
 int main(int argc, char **argv)
 {
     int ret_val = -1, i = 0;
     int input_c = 0;
     struct sockaddr_in c_add;
-    unsigned int portnum = 9009;
 
     // sig_t sighandler;
 
@@ -477,7 +665,15 @@ int main(int argc, char **argv)
 
     show_version();
 
-    LOGD(LOG_TAG"lg tp 1...\r\n");
+    sleep(10);
+
+    ret_val = get_net_info();
+    if (ret_val != 0)
+    {
+        LOGE(LOG_TAG"get_net_info faild!\r\n");
+    }
+
+    LOGD(LOG_TAG"ethernet environment set done!\r\n");
 
     if (axidma_prep() < 0)
     {
@@ -487,7 +683,7 @@ int main(int argc, char **argv)
    
     mmap_init();
 
-    cmd_fd = tcp_udp_client_init(0, 9009, 9527, "192.168.1.105", 10);
+    cmd_fd = tcp_udp_client_init(0, server_port_num, cmd_port_num, server_ip, 10);
     if (cmd_fd < 0)
     {
         LOGE(LOG_TAG"tcp socket failed,errno = %d\r\n", errno);
@@ -501,7 +697,7 @@ int main(int argc, char **argv)
         LOGE(LOG_TAG"pthread_create_and_setaffinity faild for rcv_cmd_func!\r\n");
     }
 
-    server_fd = tcp_udp_client_init(0, 9009, 1234, "192.168.1.105", 10);
+    server_fd = tcp_udp_client_init(0, server_port_num, client_port_num, server_ip, 10);
     if (server_fd < 0)
     {
         LOGE(LOG_TAG"tcp socket failed,errno = %d\r\n", errno);

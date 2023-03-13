@@ -20,10 +20,14 @@
 
 
 
-unsigned char ip[4];
-unsigned char mask[4];
-unsigned char mac[6];
-unsigned int port_num;
+unsigned char server_ip[32];
+unsigned char client_ip[32];
+unsigned char client_mask[32];
+unsigned char client_mac[6];
+unsigned int server_port_num;
+unsigned int client_port_num;
+unsigned int cmd_port_num;
+
 
 int net_eth_set_mac(char *eth_name, unsigned char *mac)
 {
@@ -190,38 +194,113 @@ ERROR:
  
 	return ret;
 }
+int set_ip_netmask(const char *name, const char *ip_netmask)
+{
+    int sock;
+    struct ifreq ifr;
+    in_addr_t in_addr;
+    struct sockaddr_in sin;
+    char ip[32] = {0};
+    int ret;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock == -1) 
+    {
+        printf("ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+    }
+
+    memset(&ifr, 0, sizeof(struct ifreq));
+    memset(&sin, 0, sizeof(struct sockaddr_in));
+
+    sprintf(ifr.ifr_name, name);
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = 0;
+    sin.sin_addr.s_addr = inet_addr(ip_netmask);
+    memcpy(&(ifr.ifr_addr), &sin, sizeof(struct sockaddr));
+    ret = ioctl(sock, SIOCSIFNETMASK, (caddr_t)&ifr, sizeof(struct ifreq));
+    if (ret != 0) 
+    {
+        printf("ioctl failed,errno = %d\r\n", errno);
+        return -errno; 
+    }
+
+    return 0;
+}
 
 void main()
 {
     int ret;
     FILE *fp = NULL;
     char ip_buff[64];
-	char buff[64];
-    char *mert;
-	unsigned char mask[4] = {255, 255, 255, 0};
+
 
     char *filename = "./IP_PORT_INFO.txt";
     fp = fopen(filename , "r");
-    printf("%d \n",sizeof(buff));
-    mert = fgets(ip_buff , sizeof(ip_buff) , fp);
-    if(mert == NULL){
-        printf("读取失败!!!");
-        return;
+    if(fp == NULL)
+    {
+        printf("file open failed,errno = %d\r\n", errno);
+        return -errno;        
     }
-    sscanf(ip_buff, "%d.%d.%d.%d", &ip[0], &ip[1], &ip[2], &ip[3]);
-    printf("IP is: %d.%d.%d.%d \n", ip[0], ip[1], ip[2], ip[3]);
-	ret = net_eth_set_ipv4("ens33", ip_buff);
 
-    fgets(buff , sizeof(buff) , fp);
-    sscanf(buff, "%02x:%02x:%02x:%02x:%02x:%02x", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
-    printf("MAC is: %02x:%02x:%02x:%02x:%02x:%02x \n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	net_eth_set_mac("ens33", mac);
+    // fgets(ip_buff , sizeof(ip_buff) , fp);
+    // sscanf(ip_buff, "server_ip:%d.%d.%d.%d", &server_ip[0], &server_ip[1], &server_ip[2], &server_ip[3]);
+    // printf("server_ip is: %d.%d.%d.%d \n", server_ip[0], server_ip[1], server_ip[2], server_ip[3]);
 
-    fgets(buff, sizeof(buff) , fp);
-    sscanf(buff, "%d", &port_num);
-    printf("PORT_NUM is: %d\n", port_num);
+    // fgets(ip_buff , sizeof(ip_buff) , fp);
+    // sscanf(ip_buff, "client_ip:%d.%d.%d.%d", &client_ip[0], &client_ip[1], &client_ip[2], &client_ip[3]);
+    // printf("client_ip is: %d.%d.%d.%d \n", client_ip[0], client_ip[1], client_ip[2], client_ip[3]);    
+	// ret = net_eth_set_ipv4("eth0", client_ip);
+
+    // fgets(ip_buff , sizeof(ip_buff) , fp);
+    // sscanf(ip_buff, "client_mask:%d.%d.%d.%d", &client_mask[0], &client_mask[1], &client_mask[2], &client_mask[3]);
+    // printf("client_mask is: %d.%d.%d.%d \n", client_mask[0], client_mask[1], client_mask[2], client_mask[3]);
+	// ret = set_ip_netmask("eth0", client_mask);    
+
+    // fgets(buff , sizeof(buff) , fp);
+    // sscanf(buff, "client_mac:%02x:%02x:%02x:%02x:%02x:%02x", &client_mac[0], &client_mac[1], &client_mac[2], &client_mac[3], &client_mac[4], &client_mac[5]);
+    // printf("client_mac is: %02x:%02x:%02x:%02x:%02x:%02x \n", client_mac[0], client_mac[1], client_mac[2], client_mac[3], client_mac[4], client_mac[5]);
+	// ret = net_eth_set_mac("eth0", client_mac);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "server_ip:%s", &server_ip);
+    printf("server_ip is: %s \n", server_ip);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_ip:%s", &client_ip);
+    printf("client_ip is: %s \n", client_ip);    
+	ret = net_eth_set_ipv4("ens33", client_ip);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_mask:%s", &client_mask);
+    printf("client_mask is: %s \n", client_mask);
+	ret = set_ip_netmask("ens33", client_mask);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_mac:%02x:%02x:%02x:%02x:%02x:%02x", &client_mac[0], &client_mac[1], &client_mac[2], &client_mac[3], &client_mac[4], &client_mac[5]);
+    printf("client_mac is: %02x:%02x:%02x:%02x:%02x:%02x \n", client_mac[0], client_mac[1], client_mac[2], client_mac[3], client_mac[4], client_mac[5]);
+	ret = net_eth_set_mac("ens33", client_mac);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "server_port_num:%d", &server_port_num);
+    printf("server_port_num is: %d\n", server_port_num);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "client_port_num:%d", &client_port_num);
+    printf("client_port_num is: %d\n", client_port_num);
+
+    memset(ip_buff, 0, sizeof(ip_buff));
+    fgets(ip_buff, sizeof(ip_buff), fp);
+    sscanf(ip_buff, "cmd_port_num:%d", &cmd_port_num);
+    printf("cmd_port_num is: %d\n", cmd_port_num);
 
     fclose(fp);
-
 }
 
