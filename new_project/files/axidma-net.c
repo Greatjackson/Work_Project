@@ -223,11 +223,13 @@ ret_axidma:
     return -1;
 }
 
+#define STATUS_BUF_LEN  28
 static int cmd_analysis(char *buf)
 {
     unsigned int code_value, flag;
     char code_value_buf[16] = {0};
     char flag_buf[4] = {0};
+    char status_buf[STATUS_BUF_LEN] = {0};
 
     if(strncmp(buf, "cmd_start", 9) == 0)
     {
@@ -281,7 +283,10 @@ static int cmd_analysis(char *buf)
         printf("system rebooting...\n");
         system("reboot");
     }
+    else if(strncmp(buf, "send_status", 11) == 0)
+    {
 
+    }
     else
     {
         LOGE("invalid command, please check again!\r\n", errno);
@@ -347,7 +352,6 @@ static void *rcv_file_func(void *arg)
     char code_value_buf = {0};
     char flag_buf = {0};
     unsigned int code_value, flag, packet_num;
-    // char data_buf[DEFAULT_TRANSFER_SIZE];
     char data_buf[DEFAULT_TRANSFER_SIZE];
     char temp_buf[DEFAULT_TRANSFER_SIZE];
 
@@ -355,43 +359,6 @@ static void *rcv_file_func(void *arg)
 
     while(1)
     {
-        // ret_val = read(*tmp_fd, data_buf, 1448);
-        // if(print_data_flag == 1)
-        //     printf("1rcv ret_val=%d\n", ret_val);
-        // if (ret_val < 0)
-        // {
-        //     LOGE(LOG_TAG"1get net_data faild,errno = %d\r\n", errno);
-        //     return -errno;
-        // }
-
-        // if(print_data_flag == 1)
-        // {
-        //     printf("get data form eth:\n");
-        //     for(i = 0; i < 30; i++)
-        //     {
-        //         printf("0x%02x ", data_buf[i]);
-        //     }
-        //     printf("\n");
-        // }
-        // ret_val = read(*tmp_fd, data_buf+1448, 6744+4);
-        // if(print_data_flag == 1)
-        //     printf("2rcv ret_val=%d\n", ret_val);
-        // if (ret_val < 0)
-        // {
-        //     LOGE(LOG_TAG"2get net_data faild,errno = %d\r\n", errno);
-        //     return -errno;
-        // }    
-
-        //for()
-        //ret_val = read(*tmp_fd, data_buf, 1366);
-        //if(print_data_flag == 1)
-        //    printf("%d rcv ret_val=%d\n", ret_val);
-        //if (ret_val < 0)
-        //{
-        //    LOGE(LOG_TAG"1get net_data faild,errno = %d\r\n", errno);
-        //    return -errno;
-        //}
-
         //if(print_data_flag == 1)
         //{
         //    printf("get data form eth:\n");
@@ -401,14 +368,6 @@ static void *rcv_file_func(void *arg)
         //    }
         //    printf("\n");
         //}
-        //ret_val = read(*tmp_fd, data_buf+1448, 6744+4);
-        //if(print_data_flag == 1)
-        //    printf("2rcv ret_val=%d\n", ret_val);
-        //if (ret_val < 0)
-        //{
-        //    LOGE(LOG_TAG"2get net_data faild,errno = %d\r\n", errno);
-        //    return -errno;
-        //}  
 
         // ret_val = read(*tmp_fd, data_buf, 1366);
         // if(print_data_flag == 1)
@@ -511,20 +470,17 @@ static void sigfunc(int sig)
     }
     if (rcv_file_thread > 0)
     {
-        //pthread_join(rcv_file_thread);
         pthread_cancel(rcv_file_thread);
         rcv_file_thread = -1;
     }
     if (rcv_cmd_thread > 0)
     {
-        //pthread_join(rcv_cmd_thread);
         pthread_cancel(rcv_cmd_thread);
         rcv_cmd_thread = -1;
     }
 
     if (monitor_thread > 0)
     {
-        //pthread_join(monitor_thread);
         pthread_cancel(monitor_thread);
         monitor_thread = -1;
     }
@@ -737,13 +693,6 @@ int main(int argc, char **argv)
     int input_c = 0;
     struct sockaddr_in c_add;
 
-    // sig_t sighandler;
-
-    // sighandler = (SIGINT, sigfunc);
-    // RETURN_ERR(LOG_TAG, "signal  SIGINT", sighandler == SIG_ERR);
-
-    // sighandler = signal(SIGTERM, sigfunc);
-    // RETURN_ERR(LOG_TAG, "signal  SIGTERM", sighandler == SIG_ERR);
     sleep(10);
 
     system("mtd_debug read /dev/mtd7 0 179 IP_PORT_INFO.txt");
@@ -833,20 +782,17 @@ int main(int argc, char **argv)
 
     if (rcv_file_thread > 0)
     {
-        //pthread_join(rcv_file_thread, NULL);
         pthread_cancel(rcv_file_thread);
         rcv_file_thread = -1;
     }
     if (rcv_cmd_thread > 0)
     {
-        //pthread_join(rcv_cmd_thread, NULL);
         pthread_cancel(rcv_cmd_thread);
         rcv_cmd_thread = -1;
     }
 
     if (monitor_thread > 0)
     {
-        //pthread_join(monitor_thread, NULL);
         pthread_cancel(monitor_thread);
         monitor_thread = -1;
     }
