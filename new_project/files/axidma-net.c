@@ -44,7 +44,7 @@
 #include "libaxidma.h"
 #include "util.h"
 
-#define DEFAULT_TRANSFER_SIZE       1500
+#define DEFAULT_TRANSFER_SIZE       8196
 
 #define MAX_LINK_NUM 1
 #define LOG_TAG "axidma-net.c: "
@@ -156,14 +156,14 @@ int axidma_prep(void)
         goto ret_axidma;
     }
     // Map memory regions for the transmit and receive buffers
-    tx_buf = axidma_malloc(axidma_dev, 2048);
+    tx_buf = axidma_malloc(axidma_dev, DEFAULT_TRANSFER_SIZE);
     if (tx_buf == NULL)
     {
         perror("Unable to allocate transmit buffer from the AXI DMA device.");
         rc = -1;
         goto ret_axidma;
     }
-    rx_buf = axidma_malloc(axidma_dev, 4096);
+    rx_buf = axidma_malloc(axidma_dev, DEFAULT_TRANSFER_SIZE);
     if (rx_buf == NULL)
     {
         perror("Unable to allocate receive buffer from the AXI DMA device");
@@ -276,6 +276,11 @@ static int cmd_analysis(char *buf)
         flag = atoi(flag_buf);                 
         sync_data_send(0, 0x18, flag);
     }
+    else if(strncmp(buf, "cmd_reboot", 10) == 0)
+    {
+        printf("system rebooting...\n");
+        system("reboot");
+    }
 
     else
     {
@@ -332,6 +337,7 @@ static void *rcv_cmd_func(void *arg)
 static void *rcv_file_func(void *arg)
 {
     int ret_val = -1;
+    int temp_len = 0;
     int *tmp_fd = (int *)arg;
     file_info rcv_file_info;
     int axidma_fd = 0;
@@ -340,35 +346,109 @@ static void *rcv_file_func(void *arg)
     socklen_t addrlen = sizeof(recv_addr);
     char code_value_buf = {0};
     char flag_buf = {0};
-    unsigned int code_value, flag;
+    unsigned int code_value, flag, packet_num;
+    // char data_buf[DEFAULT_TRANSFER_SIZE];
+    char data_buf[DEFAULT_TRANSFER_SIZE];
+    char temp_buf[DEFAULT_TRANSFER_SIZE];
 
     printf("file fd = %d\r\n", *tmp_fd);
 
     while(1)
     {
-        ret_val = read(*tmp_fd, tx_buf, DEFAULT_TRANSFER_SIZE);
-        if (ret_val < 0)
-        {
-            LOGE(LOG_TAG"get net_data faild,errno = %d\r\n", errno);
-            return -errno;
-        }
+        // ret_val = read(*tmp_fd, data_buf, 1448);
+        // if(print_data_flag == 1)
+        //     printf("1rcv ret_val=%d\n", ret_val);
+        // if (ret_val < 0)
+        // {
+        //     LOGE(LOG_TAG"1get net_data faild,errno = %d\r\n", errno);
+        //     return -errno;
+        // }
 
+        // if(print_data_flag == 1)
+        // {
+        //     printf("get data form eth:\n");
+        //     for(i = 0; i < 30; i++)
+        //     {
+        //         printf("0x%02x ", data_buf[i]);
+        //     }
+        //     printf("\n");
+        // }
+        // ret_val = read(*tmp_fd, data_buf+1448, 6744+4);
+        // if(print_data_flag == 1)
+        //     printf("2rcv ret_val=%d\n", ret_val);
+        // if (ret_val < 0)
+        // {
+        //     LOGE(LOG_TAG"2get net_data faild,errno = %d\r\n", errno);
+        //     return -errno;
+        // }    
+
+        //for()
+        //ret_val = read(*tmp_fd, data_buf, 1366);
+        //if(print_data_flag == 1)
+        //    printf("%d rcv ret_val=%d\n", ret_val);
+        //if (ret_val < 0)
+        //{
+        //    LOGE(LOG_TAG"1get net_data faild,errno = %d\r\n", errno);
+        //    return -errno;
+        //}
+
+        //if(print_data_flag == 1)
+        //{
+        //    printf("get data form eth:\n");
+        //    for(i = 0; i < 30; i++)
+        //    {
+        //        printf("0x%02x ", data_buf[i]);
+        //    }
+        //    printf("\n");
+        //}
+        //ret_val = read(*tmp_fd, data_buf+1448, 6744+4);
+        //if(print_data_flag == 1)
+        //    printf("2rcv ret_val=%d\n", ret_val);
+        //if (ret_val < 0)
+        //{
+        //    LOGE(LOG_TAG"2get net_data faild,errno = %d\r\n", errno);
+        //    return -errno;
+        //}  
+
+        // ret_val = read(*tmp_fd, data_buf, 1366);
+        // if(print_data_flag == 1)
+        //     printf("%d 1rcv ret_val=%d\n", ret_val);
+        // ret_val = read(*tmp_fd, data_buf + 1366, 1366);
+        // if(print_data_flag == 1)
+        //     printf("%d 2rcv ret_val=%d\n", ret_val);
+        // ret_val = read(*tmp_fd, data_buf + 1366*2, 1366);
+        // if(print_data_flag == 1)
+        //     printf("%d 3rcv ret_val=%d\n", ret_val);
+        // ret_val = read(*tmp_fd, data_buf + 1366*3, 1366);
+        // if(print_data_flag == 1)
+        //     printf("%d 4rcv ret_val=%d\n", ret_val);
+        // ret_val = read(*tmp_fd, data_buf + 1366*4, 1366);
+        // if(print_data_flag == 1)
+        //     printf("%d 5rcv ret_val=%d\n", ret_val);
+        // ret_val = read(*tmp_fd, data_buf + 1366*5, 1366);
+        // if(print_data_flag == 1)
+        //     printf("%d 6rcv ret_val=%d\n", ret_val);
+
+        ret_val = read(*tmp_fd, temp_buf, DEFAULT_TRANSFER_SIZE);
         if(print_data_flag == 1)
-        {
-            printf("get data form eth:\n");
-            for(i = 0; i < 30; i++)
+            printf("%d 1rcv ret_val=%d\n", ret_val);
+        memcpy(data_buf + temp_len, temp_buf, ret_val);
+        temp_len += ret_val;
+        
+        if(temp_len >= DEFAULT_TRANSFER_SIZE)
+        {           
+            memcpy(tx_buf, data_buf, DEFAULT_TRANSFER_SIZE);
+            rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
+            if (rc < 0)
             {
-                printf("0x%02x ", tx_buf[i]);
-            }
-            printf("\n");
+                LOGD("axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
+                break;
+            } 
+            temp_len -= DEFAULT_TRANSFER_SIZE;
+            memcpy(data_buf, temp_buf + (ret_val - temp_len), temp_len);
+            ret_val = 0;
         }
 
-        rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
-        if (rc < 0)
-        {
-            LOGD("axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
-            break;
-        } 
     }
 }
 
@@ -391,14 +471,16 @@ static void *snd_file_func(void *arg)
             LOGE(LOG_TAG"axidma_oneway_transfer:%d,errno = %d\r\n", rc, errno);
             break;
         }
-
-        printf("axidma received data:\n");
-        for(i = 0; i < 30; i++)
-        {
-            printf("0x%02x ", rx_buf[i]);
-        }
-        printf("\n");
-
+        //if(print_data_flag == 1)
+        //{
+        //    printf("axidma received data:\n");
+        //    for(i = 0; i < 30; i++)
+        //    {
+        //        printf("0x%02x ", rx_buf[i]);
+        //    }
+        //    printf("\n");
+        //}
+        
         ret_val = write(*tmp_fd, rx_buf, DEFAULT_TRANSFER_SIZE);
         if (rc < 0)
         {
@@ -662,10 +744,12 @@ int main(int argc, char **argv)
 
     // sighandler = signal(SIGTERM, sigfunc);
     // RETURN_ERR(LOG_TAG, "signal  SIGTERM", sighandler == SIG_ERR);
+    sleep(10);
+
+    system("mtd_debug read /dev/mtd7 0 179 IP_PORT_INFO.txt");
+    sleep(1);
 
     show_version();
-
-    sleep(10);
 
     ret_val = get_net_info();
     if (ret_val != 0)
@@ -683,7 +767,7 @@ int main(int argc, char **argv)
    
     mmap_init();
 
-    cmd_fd = tcp_udp_client_init(0, server_port_num, cmd_port_num, server_ip, 10);
+    cmd_fd = tcp_udp_client_init(0, server_port_num, cmd_port_num, server_ip, 100);
     if (cmd_fd < 0)
     {
         LOGE(LOG_TAG"tcp socket failed,errno = %d\r\n", errno);
