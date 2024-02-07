@@ -26,5 +26,4 @@ doc/*.txt
 # 忽略特定目录下的所有文件和子目录（例如一个名为"temp"的目录）
 #/temp/*
 
-new_project/IP_PORT_INFO.txt
 
