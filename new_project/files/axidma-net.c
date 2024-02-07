@@ -64,8 +64,10 @@ char *tx_buf, *rx_buf;
 int phy_addr = 0x43c00000;
 volatile unsigned int *vir_addr = NULL;
 unsigned int print_data_flag = 0;
+unsigned int pack_count[3]; //包数统计：0-收到不是1366包数量；1-发送8196包数量；2-收到1366包数量
 
 unsigned int sync_data_send(int sync_port_num, int reg_offset, unsigned int value);
+unsigned int sync_data_recv(int sync_port_num, int reg_offset);
 int mmap_init(void);
 
 unsigned int sync_data_send(int sync_port_num, int reg_offset, unsigned int value)
@@ -87,6 +89,27 @@ unsigned int sync_data_send(int sync_port_num, int reg_offset, unsigned int valu
     }
 
     return 0;
+}
+
+unsigned int sync_data_recv(int sync_port_num, int reg_offset)
+{
+    unsigned int read_result = 0;
+    volatile unsigned int *sync_vir_addr = NULL;
+    switch (sync_port_num)
+    {
+        default:
+            LOGD(LOG_TAG"Wrong recv sync_port_num.\n");
+            break;
+        case 0:
+            sync_vir_addr = vir_addr + reg_offset / 4;
+            LOGD(LOG_TAG"Read 32-bits value from 0x%08x (0x%p) is 0x%08x.\n",
+                 (phy_addr + sync_port_num * 0x1000 + reg_offset),
+                 sync_vir_addr, *sync_vir_addr);
+            read_result = *sync_vir_addr;
+            break;
+    }
+
+    return read_result;
 }
 
 int mmap_init(void)
@@ -226,9 +249,11 @@ ret_axidma:
 #define STATUS_BUF_LEN  28
 static int cmd_analysis(char *buf)
 {
-    unsigned int code_value, flag;
+    unsigned int code_value, flag, temp_date;
+    int ret_val = -1;
     char code_value_buf[16] = {0};
     char flag_buf[4] = {0};
+    char status_byte = 0;
     char status_buf[STATUS_BUF_LEN] = {0};
 
     if(strncmp(buf, "cmd_start", 9) == 0)
@@ -285,7 +310,29 @@ static int cmd_analysis(char *buf)
     }
     else if(strncmp(buf, "send_status", 11) == 0)
     {
-
+        temp_date = sync_data_recv(0, 0x1C);
+        memcpy(&status_buf[status_byte], &temp_date, sizeof(unsigned int));
+        status_byte += 4;
+        memcpy(&status_buf[status_byte], &pack_count[0], sizeof(unsigned int));
+        status_byte += 4;
+        memcpy(&status_buf[status_byte], &pack_count[1], sizeof(unsigned int));
+        status_byte += 4;
+        memcpy(&status_buf[status_byte], &pack_count[2], sizeof(unsigned int));
+        status_byte += 4;
+        temp_date = sync_data_recv(0, 0x20);
+        memcpy(&status_buf[status_byte], &temp_date, sizeof(unsigned int));
+        status_byte += 4;
+        temp_date = sync_data_recv(0, 0x24);
+        memcpy(&status_buf[status_byte], &temp_date, sizeof(unsigned int));
+        status_byte += 4;
+        temp_date = sync_data_recv(0, 0x28);
+        memcpy(&status_buf[status_byte], &temp_date, sizeof(unsigned int));
+        
+        ret_val = write(server_fd, status_buf, STATUS_BUF_LEN);
+        if (ret_val < 0)
+        {
+            LOGD("write status data:%d,errno = %d\r\n", ret_val, errno);
+        }
     }
     else
     {
@@ -389,13 +436,22 @@ static void *rcv_file_func(void *arg)
         //     printf("%d 6rcv ret_val=%d\n", ret_val);
 
         ret_val = read(*tmp_fd, temp_buf, DEFAULT_TRANSFER_SIZE);
+        if(ret_val == 1366)
+        {
+            pack_count[2]++;
+        }
+        else if((ret_val != 1366) && (ret_val > 0))
+        {
+            pack_count[0]++;
+        }
         if(print_data_flag == 1)
             printf("%d 1rcv ret_val=%d\n", ret_val);
         memcpy(data_buf + temp_len, temp_buf, ret_val);
         temp_len += ret_val;
         
         if(temp_len >= DEFAULT_TRANSFER_SIZE)
-        {           
+        {
+            pack_count[1]++;
             memcpy(tx_buf, data_buf, DEFAULT_TRANSFER_SIZE);
             rc = axidma_oneway_transfer(axidma_dev, tx_channel, tx_buf, DEFAULT_TRANSFER_SIZE, true);
             if (rc < 0)
@@ -441,7 +497,7 @@ static void *snd_file_func(void *arg)
         //}
         
         ret_val = write(*tmp_fd, rx_buf, DEFAULT_TRANSFER_SIZE);
-        if (rc < 0)
+        if (ret_val < 0)
         {
             LOGD("write data:%d,errno = %d\r\n", ret_val, errno);
             break;
