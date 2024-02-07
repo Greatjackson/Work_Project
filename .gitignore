@@ -1,0 +1,28 @@
+# 忽略所有的 .a 文件
+#*.a
+
+# 但跟踪所有的 lib.a，即便你在前面忽略了 .a 文件
+#!lib.a
+
+# 只忽略当前目录下的 TODO 文件，而不忽略 subdir/TODO
+#/TODO
+
+# 忽略任何目录下名为 build 的文件夹
+#build/
+
+# 忽略 doc/notes.txt，但不忽略 doc/server/arch.txt
+doc/*.txt
+
+# 忽略 doc/ 目录及其所有子目录下的 .pdf 文件
+#doc/**/*.pdf
+
+# 注释 - 以井号(#)开头的行为注释
+# 忽略单个文件
+#filename.txt
+# 忽略文件类型（例如所有的txt文件）
+#*.txt
+# 忽略目录（例如一个名为"logs"的目录）
+#/logs/
+# 忽略特定目录下的所有文件和子目录（例如一个名为"temp"的目录）
+#/temp/*
+
